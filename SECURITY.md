@@ -81,6 +81,15 @@ The inference engine (`zyrabit-engine`) is intentionally isolated with no extern
 
 ---
 
+## Tenant Isolation & Threat Model
+
+Zyrabit SLM is designed as a **single-tenant sovereign AI node**. 
+
+- **Node Trust Boundary:** Each deployment instance (container stack) is scoped to a single sovereign trust domain. Multi-tenancy across distinct untrusted organizations is achieved by deploying independent container instances.
+- **Caller-Level Authorization:** In multi-client environments (e.g. web UI, n8n, MCP adapters), documents can be tagged with an `owner_id`. The chat and retrieval layer restricts document access to matching callers (`caller_id`), preventing cross-client document enumeration.
+
+---
+
 ## Security Audit Log
 
 | Date | Tool | Vulnerabilities Found | Status |

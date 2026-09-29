@@ -1,4 +1,3 @@
-import sys
 import logging
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -19,13 +18,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
     """
     Validates Bearer token against the ApiKeyStore.
     Supports multiple named API keys (ZYRABIT_API_KEY_<NAME>).
-    Falls back to test-token when running under pytest.
     """
-    # Test environment bypass
-    if "pytest" in sys.modules:
-        if credentials and credentials.credentials == "test-token":
-            return User(id=1, name="TestUser", client="test")
-
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated: Bearer token required")
 

@@ -27,7 +27,7 @@ class SQLiteNodeStore:
                 CREATE TABLE IF NOT EXISTS node_sources (
                   id TEXT PRIMARY KEY, filename TEXT NOT NULL, media_type TEXT NOT NULL,
                   sha256 TEXT NOT NULL UNIQUE, size_bytes INTEGER NOT NULL, stored_path TEXT NOT NULL,
-                  created_at TEXT NOT NULL
+                  created_at TEXT NOT NULL, owner_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS node_documents (
                   id TEXT PRIMARY KEY, source_id TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
@@ -70,11 +70,12 @@ class SQLiteNodeStore:
             """)
             self._ensure_column(conn, "node_sessions", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(conn, "node_sessions", "document_id", "TEXT")
+            self._ensure_column(conn, "node_sources", "owner_id", "TEXT")
 
     @staticmethod
     def _ensure_column(conn, table: str, column: str, definition: str) -> None:
         ALLOWED_TABLES = {"node_sources", "node_documents", "node_evidence", "node_sessions", "node_jobs", "node_capabilities"}
-        ALLOWED_COLUMNS = {"metadata_json", "document_id", "status", "error", "metrics_json"}
+        ALLOWED_COLUMNS = {"metadata_json", "document_id", "status", "error", "metrics_json", "owner_id"}
         ALLOWED_DEFINITIONS = {"TEXT NOT NULL DEFAULT '{}'", "TEXT"}
 
         if table not in ALLOWED_TABLES or column not in ALLOWED_COLUMNS or definition not in ALLOWED_DEFINITIONS:
@@ -86,8 +87,10 @@ class SQLiteNodeStore:
 
     def create_source(self, source: Source) -> None:
         with self._connect() as conn:
-            conn.execute("INSERT OR IGNORE INTO node_sources VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         (source.id, source.filename, source.media_type, source.sha256, source.size_bytes, source.stored_path, source.created_at))
+            conn.execute(
+                "INSERT OR IGNORE INTO node_sources (id, filename, media_type, sha256, size_bytes, stored_path, created_at, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (source.id, source.filename, source.media_type, source.sha256, source.size_bytes, source.stored_path, source.created_at, getattr(source, "owner_id", None)),
+            )
 
     def source_by_hash(self, sha256: str) -> dict | None:
         with self._connect() as conn:
@@ -130,7 +133,7 @@ class SQLiteNodeStore:
 
     def get_document(self, document_id: str) -> dict | None:
         with self._connect() as conn:
-            row = conn.execute("""SELECT d.*, s.filename, s.media_type, s.size_bytes, s.sha256
+            row = conn.execute("""SELECT d.*, s.filename, s.media_type, s.size_bytes, s.sha256, s.owner_id
                 FROM node_documents d JOIN node_sources s ON s.id=d.source_id WHERE d.id=?""", (document_id,)).fetchone()
             if not row: return None
             result = dict(row)
@@ -151,7 +154,7 @@ class SQLiteNodeStore:
     def latest_ready_document_for(self, document_id: str) -> dict | None:
         """Resolve an old document-version selection to the ready version of its source."""
         with self._connect() as conn:
-            row = conn.execute("""SELECT d.*, s.filename, s.media_type, s.size_bytes, s.sha256
+            row = conn.execute("""SELECT d.*, s.filename, s.media_type, s.size_bytes, s.sha256, s.owner_id
                 FROM node_documents selected
                 JOIN node_documents d ON d.source_id=selected.source_id
                 JOIN node_sources s ON s.id=d.source_id

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import shutil
 import time
@@ -11,6 +12,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from app.node.domain import EvidenceUnit, IngestionJob
+
+logger = logging.getLogger("zyrabit.node")
 
 
 class NodeService:
@@ -111,9 +114,9 @@ class NodeService:
         for name, ok, detail in checks: self.metadata.capability(name, "ready" if ok else "unavailable", detail)
         return self.metadata.capabilities()
 
-    async def query(self, question: str, session_id: str, document_id: str | None = None) -> dict:
+    async def query(self, question: str, session_id: str, document_id: str | None = None, caller_id: str | None = None) -> dict:
         session_context = self.metadata.get_session_context(session_id)
-        document_id = self._resolve_document_scope(document_id or session_context.get("active_document_id"))
+        document_id = self._resolve_document_scope(document_id or session_context.get("active_document_id"), caller_id=caller_id)
         if document_id != session_context.get("active_document_id"):
             session_context = self.update_session_context(session_id, document_id)
         effective_question = self._effective_question(question, session_context)
@@ -152,14 +155,20 @@ class NodeService:
                 return True
         return False
 
-    def _resolve_document_scope(self, document_id: str | None) -> str | None:
+    def _resolve_document_scope(self, document_id: str | None, caller_id: str | None = None) -> str | None:
         if not document_id:
             return None
         document = self.metadata.get_document(document_id)
+        if not document:
+            return None
+        owner = document.get("owner_id")
+        if owner is not None and caller_id is not None and owner != caller_id:
+            logger.warning("🚫 Document access rejected: caller '%s' does not match owner '%s'", caller_id, owner)
+            return None
         replacement = self.metadata.latest_ready_document_for(document_id) if document else None
         if replacement:
             return replacement["id"]
-        if not document or document["status"] != "ready":
+        if document.get("status") != "ready":
             return None
         return document_id
 
