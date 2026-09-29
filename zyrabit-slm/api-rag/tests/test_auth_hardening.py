@@ -39,3 +39,19 @@ async def test_get_current_user_invalid(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await get_current_user(creds)
     assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_ambient_test_token(monkeypatch):
+    """Regression test for GHSA-p5j7-785r-2wg6 (CWE-798).
+
+    Ensure 'test-token' is rejected even when running inside pytest,
+    preventing ambient test runner bypass in production deployments.
+    """
+    monkeypatch.setenv("ZYRABIT_API_KEY_WEBUI", "web-secret-key-123")
+    ApiKeyStore.load()
+
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="test-token")
+    with pytest.raises(HTTPException) as exc:
+        await get_current_user(creds)
+    assert exc.value.status_code == 401

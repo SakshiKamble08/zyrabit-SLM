@@ -60,3 +60,31 @@ async def test_unready_selected_document_uses_model_without_falling_back_to_libr
     result = await service.query("anything", "scope-test", "missing-document")
     assert result["metadata"]["decision"] == "model-knowledge"
     assert result["metadata"]["sources"] == []
+
+
+@pytest.mark.asyncio
+async def test_document_owner_authorization_blocks_unauthorized_caller(tmp_path: Path):
+    """Regression test for GHSA-2cwj-m6g5-8f69 (CWE-639).
+
+    Ensure caller cannot query a document scoped to another owner_id.
+    """
+    store = SQLiteNodeStore(str(tmp_path / "node.db"))
+    service = NodeService(store, LocalSourceStore(str(tmp_path / "sources")), LocalDocumentParser(), CitingInference(), vector_index=InMemoryVectorIndex())
+
+    root = Path(__file__).parents[3]
+    doc_file = root / "api-rag/docs/zyrabit-architecture-playbook.pdf"
+    doc_import = await service.import_file(doc_file.name, str(doc_file))
+    await _ready(service, doc_import["job_id"])
+    doc_id = doc_import["document_id"]
+
+    # Assign an owner to the source
+    with store._connect() as conn:
+        conn.execute("UPDATE node_sources SET owner_id = 'tenant-alice'")
+
+    # Query with matching caller_id succeeds
+    res_allowed = await service.query("Arquitectura", "s1", doc_id, caller_id="tenant-alice")
+    assert res_allowed["metadata"]["sources"]
+
+    # Query with mismatched caller_id is denied access to the document
+    res_denied = await service.query("Arquitectura", "s2", doc_id, caller_id="tenant-bob")
+    assert res_denied["metadata"]["sources"] == []
